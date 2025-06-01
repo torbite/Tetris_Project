@@ -1,5 +1,7 @@
-import copy, os, time, random
+import copy, os, time, random, numpy as np, math
 from copy import deepcopy
+from pynput import keyboard
+from threading import Thread
 
 def sumLists(list_a, list_b):
     if len(list_a) != len(list_b):
@@ -197,7 +199,25 @@ class TetrisBoard():
         self.matrix = [[0]*columns for _ in range(rows)]
         self.activePieces = []
         self.points = 0
-        
+        self.pieces = [
+                        SquarePiece,
+                        LPiece,
+                        InvertedLPiece,
+                        LongbarPiece,
+                        SquigglePiece,
+                        InvertedSquigglePiece,
+                        TPiece
+                    ]
+        self.nextPiece = random.choice(self.pieces)
+        self.clearedLines = 0
+    
+    def clone(self):
+        new_board = TetrisBoard(self.rowsLength, self.columnsLength)
+        new_board.matrix = [row[:] for row in self.matrix]
+        new_board.points = self.points
+        new_board.activePieces = copy.deepcopy(self.activePieces)
+        new_board.nextPiece = self.nextPiece
+        return new_board
 
     def renderBoard(self, board = None):
         board = board if board else self.matrix
@@ -242,7 +262,7 @@ class TetrisBoard():
         board[position[1]][position[0]] = 1 if self.getPositionValue(position, board) == 0 else 0
         return board
 
-    def renderPieces(self):
+    def getBoardWithPieces(self):
         pieces = self.activePieces
         renderBoard = deepcopy(self.matrix)
         for piece in pieces:
@@ -252,11 +272,15 @@ class TetrisBoard():
                 # print(renderBoard)
                 renderBoard = self.changePositionValue(position, renderBoard)
                 # print(renderBoard)
-            
-        self.renderBoard(renderBoard)
+        return renderBoard
+
+
+    def renderPieces(self):
+        self.renderBoard(self.getBoardWithPieces())
 
     def spawnPiece(self, piece : Piece):
-        self.activePieces.append(piece(position=[0,0]))
+        xSpawnPos = math.floor(self.rowsLength/2) - 1
+        self.activePieces.append(piece(position=[xSpawnPos,0]))
 
     def isPossiblePiecePosition(self, piece : Piece, board = None):
         board = board if board else self.matrix
@@ -274,14 +298,14 @@ class TetrisBoard():
 
         phantomPiece = deepcopy(piece)
         action = action.lower()
-        movements = {'a' : [-1, 0], 'd' : [1, 0], 's' : [0, 1]}
+        movements = {'a' : [-1, 0], 'd' : [1, 0], 'l' : [0, 1]}
         
 
         if action in movements.keys():
             phantomPiece.position = sumLists(phantomPiece.position, movements[action])
             # print(action, movements[action])
             possible = self.isPossiblePiecePosition(phantomPiece, board)
-            if not possible and action == "s":
+            if not possible and action == "l":
                 return True
             
             if possible:
@@ -290,15 +314,27 @@ class TetrisBoard():
             
             return False
         
-        if action == 'r':
-            phantomPiece.rotate()
+        if action == 'r' or action == 'q':
+            if action == 'q':
+                phantomPiece.unrotate()
+            else:
+                phantomPiece.rotate()
             possible = self.isPossiblePiecePosition(phantomPiece, board)
             while not possible:
-                phantomPiece.rotate()
+                if action == 'q':
+                    phantomPiece.unrotate()
+                else:
+                    phantomPiece.rotate()
                 possible = self.isPossiblePiecePosition(phantomPiece, board)
             if possible:
                 piece.formIndex = phantomPiece.formIndex
             return False
+        
+        if action == 'x':
+            x = self.runActionOnPiece('l', piece, board)
+            while x == False:
+                x = self.runActionOnPiece('l', piece, board)
+            return x
         return False
 
     def checkRows(self, board = None):
@@ -319,18 +355,32 @@ class TetrisBoard():
             # input()
         if number == 1:
             self.points += 40
+            self.clearedLines += 1
         if number == 2:
             self.points += 100
+            self.clearedLines += 2
         if number == 3:
             self.points += 300
+            self.clearedLines += 3
         if number == 4:
             self.points += 1200
+            self.clearedLines += 4
         return board
 
 
 
     def step(self, inp):
         # print(inp)
+        if 's' in inp:
+            inpList = list(inp)
+            for i in range(len(inpList)):
+                inpList[i] = 'l' if inpList[i] == 's' else inpList[i]
+            inp = ''.join(inpList)
+                    
+        inp = inp
+        if len(self.activePieces) == 0:
+            self.spawnPiece(deepcopy(self.nextPiece))
+            self.nextPiece = random.choice(self.pieces)
         actions = list(inp)
         lost = False
         for action in actions:
@@ -342,6 +392,7 @@ class TetrisBoard():
                         self.changePositionValue(position)
                     self.activePieces.remove(piece)
                     self.matrix = self.checkRows()
+                    self.step('l')
                 if 1 in self.matrix[3]:
                     lost = True
                     return lost
@@ -349,34 +400,68 @@ class TetrisBoard():
     
 
 
-    
+if __name__ == "__main__":
+    board = TetrisBoard(10)
 
+    level = math.floor(board.clearedLines/10)
 
-board = TetrisBoard()
-board.spawnPiece(random.choice(pieces))
-# board.spawnPiece(LongbarPiece)
-inp = ''
-while inp != "hell":
-    os.system('clear')
-    print(f"""
+    inp = ''
+
+    acts = ['a', 'd', 's', 'r', 'x']
+
+    pressed = []
+    lost =  False
+    def on_press(key):
+        global board, lost, level
+        try:
+            if key.char in acts:
+                a = board.step(key.char)
+                os.system('clear')
+                print(f"""
 --------------------------------
 POINTS: {board.points}
 --------------------------------
+NEXT PIECE: {board.nextPiece().name}
 """)
-    a = board.step(inp)
-    b = board.step('s')
-    board.renderPieces()
-    if a or b:
-        print("YOU LOST BROOOOOO")
-        break
-    inp = input()
-    if len(board.activePieces) == 0:
-        board.spawnPiece(random.choice(pieces))
-        # board.spawnPiece(LongbarPiece)
-#for r in range(board.rows):
-#    for c in range(board.columns):
-#        os.system('cls')
-#        print(board.getPositionValue((c, r)))
-#        time.sleep(0.1)
+                board.renderBoard(board.nextPiece().forms[0])
+                print(f"""
+--------------------------------
+LEVEL: {level}
+""")
+                board.renderPieces()
+        except:
+            pass
 
 
+
+    listener = keyboard.Listener(on_press=on_press)
+
+    listener.start()
+
+    while inp != "hell":
+        os.system('clear')
+        if lost:
+            print("YOU LOST BROOOOOO")
+            break
+        lost = board.step('l')
+        print(f"""
+--------------------------------
+POINTS: {board.points}
+--------------------------------
+NEXT PIECE: {board.nextPiece().name}
+    """)
+        board.renderBoard(board.nextPiece().forms[0])
+        print(f"""
+--------------------------------
+LEVEL: {level}
+                    """)
+        # inp = ''.join(pressed) if pressed else 'n'
+
+        board.renderPieces()
+        if lost:
+            print("YOU LOST BROOOOOO")
+            break
+        time.sleep(1)
+    
+    
+        
