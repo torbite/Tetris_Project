@@ -219,7 +219,7 @@ class TetrisBoard():
         new_board.nextPiece = self.nextPiece
         return new_board
 
-    def renderBoard(self, board = None):
+    def getPrettyBoard(self, board = None):
         board = board if board else self.matrix
         board = deepcopy(board)
         prettyBoard = deepcopy(board)
@@ -232,6 +232,11 @@ class TetrisBoard():
                 #     print(value)
                 #     # input()
                 prettyBoard[i][j] = ' . ' if value == 0 else '[=]'
+        return prettyBoard
+    
+    def renderBoard(self, board = None):
+        board = board if board else self.matrix
+        prettyBoard = self.getPrettyBoard(board)
         # print(a)
         for row in prettyBoard:
             rowString = '| '
