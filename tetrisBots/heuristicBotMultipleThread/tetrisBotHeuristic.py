@@ -3,7 +3,7 @@ from copy import deepcopy
 import hashlib
 import asyncio
 import pickle
-import keyboard
+# import keyboard
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 import threading
@@ -12,6 +12,26 @@ from queue import Queue
 # score = w1 * lines_cleared - w2 * holes - w3 * bumpiness - w4 * aggregate_height
 MAX_WORKERS = 7
 executor = ProcessPoolExecutor(max_workers=MAX_WORKERS)
+
+
+def findSideExposedHoles(board):
+    holes = 0
+    num_rows = len(board)
+    num_cols = len(board[0])
+
+    for x in range(num_cols):
+        block_found = False
+        for y in range(num_rows):
+            cell = board[y][x]
+
+            if cell != 0:
+                block_found = True
+            elif block_found:
+                left_open = (x > 0 and board[y][x - 1] == 0)
+                right_open = (x < num_cols - 1 and board[y][x + 1] == 0)
+                if left_open or right_open:
+                    holes += 1
+    return holes / (len(board) * (len(board[0]) - 4))
 
 
 def get_column_heights(board):
@@ -49,7 +69,7 @@ def findHolesInBoard(board):
 
 def findAggHeight(board):
     heights = get_column_heights(board)
-    return sum(heights)/((len(board)*(len(board[0])))-4)
+    return sum(heights)/(((len(board)-4)*len(board[0])))
 
 def getPieceHeight(piecesPosition, board):
     height = 0
@@ -57,6 +77,11 @@ def getPieceHeight(piecesPosition, board):
         if i[1] > height:
             height = i[1]
     return len(board)-height
+
+def getHeightDiff(board):
+    heights = get_column_heights(board)
+    height_diff = max(heights) - min(heights)
+    return height_diff/(len(board)-4)
 
 def calculatePoints(old_board, new_board, w1, w2, w3):
     # OLD
@@ -72,11 +97,10 @@ def calculatePoints(old_board, new_board, w1, w2, w3):
     new_bump = checkForRowsBumpiness(new_board)
 
     # DELTAS
-    delta_holes = new_holes - old_holes
+    delta_holes = (new_holes - old_holes)
     delta_bump = new_bump - old_bump
     delta_agg = new_agg - old_agg
 
-    # SCORE (negative deltas are good)
     score = -w1 * delta_holes - w3 * delta_bump - delta_agg * w2
     return score
 
@@ -98,9 +122,9 @@ def flattenMatrix(matrix):
     flat = [item for row in matrix for item in row.copy()]
     return flat
 
-def hash_key(heights, holes, action, piece_name, pos, form_index):
+def hash_key(nxtP, heights, holes, action, piece_name, pos, form_index):
     # flat = flattenMatrix(matrix)
-    key_data = heights + [holes] + [action] + [piece_name] + pos + [form_index]
+    key_data = [nxtP] + heights + [holes] + [action] + [piece_name] + pos + [form_index]
     key_str = json.dumps(key_data)  # consistent string representation
     return hashlib.md5(key_str.encode()).hexdigest()
 
@@ -108,7 +132,8 @@ def hash_key(heights, holes, action, piece_name, pos, form_index):
 class trainingScene():
     def __init__(self, depth = 4):
         self.depth = depth
-        self.board = main.TetrisBoard(6, 20)
+        self.mainDepth = depth
+        self.board = main.TetrisBoard(8, 20)
         self.hasEnded = False
         self.weights = [1, 1, 1, 1]
         self.totalSteps = 0
@@ -136,22 +161,37 @@ class trainingScene():
         phantomBoard = board.clone()
         phantomBoard.step(action + 'l')
         return phantomBoard
+    
+    def getDistanceToGround(self, board = None):
+        board = board if board else self.board
+        if not board.activePieces:
+            return 0  # No active piece to evaluate
+
+        piece = deepcopy(board.activePieces[0])  # Only 1 piece is active at a time in your code
+        distance = 0
+
+        # Move the phantom piece down until it can't move anymore
+        while True:
+            piece.position[1] += 1  # Move down
+            if not board.isPossiblePiecePosition(piece):
+                break
+            distance += 1
+
+        return distance
 
     def getPossibleScene(self, action, tr=None):
         tr = tr if tr else self
         phantomScene = tr.clone()
-        phantomScene.board.step(action + 'l')
+        dist = self.getDistanceToGround()
+        phantomScene.board.step(action + 'l')# + 's' * dist)
         return phantomScene
 
     def getRawCalculation(self, oldBoard, action, p=''):
-        boardPoints = self.board.points
+        boardPoints = self.board.clearedLines
         phantomBoard = self.getPossibleBoard((action + 'x'))
         points = 0
-        pointsGained = max(0, phantomBoard.points - boardPoints)
-        if pointsGained in self.linesClearedByPoints:
-            points += self.linesClearedByPoints[pointsGained] * self.weights[3]
-        else:
-            points += 1 * self.weights[3]
+        pointsGained = max(0, phantomBoard.clearedLines - boardPoints)
+        points += pointsGained * self.weights[3]
         calcPoints = calculatePoints(oldBoard.matrix, phantomBoard.matrix, *self.weights[:3])
         points += calcPoints
         # print(calcPoints)
@@ -164,7 +204,7 @@ class trainingScene():
 
         if depth == 0:
             state = self.board.matrix
-
+            nxtP = self.board.nextPiece().name
             heights = get_column_heights(state)
             lowestHeight = min(heights)
             normlHeights = [h - lowestHeight for h in heights]
@@ -176,9 +216,9 @@ class trainingScene():
             pForm = piece.formIndex
             # if self.collecting:
                 
-            key = hash_key(normlHeights,holes, actionj, pName, pPos, pForm)
+            key = hash_key(nxtP, normlHeights,holes, actionj, pName, pPos, pForm)
             if key in self.cache.keys():
-                return self.cache[key]
+                return self.cache[key]['reward']
 
 
         if depth >= self.depth:
@@ -203,7 +243,8 @@ class trainingScene():
         rewards = await asyncio.gather(*tasks)
         rewards.append(tr.getRawCalculation(oldBoard, 'n', pastActions))
         if depth == 0:
-            addCache(holes, normlHeights, actionj, pName, pPos, pForm,max(rewards))
+            nxtP = tr.board.nextPiece().name
+            addCache(nxtP,holes, normlHeights, actionj, pName, pPos, pForm,max(rewards))
 
         return max(rewards)
 
@@ -211,20 +252,34 @@ class trainingScene():
         start = time.time()
         print('start game')
         lost = False
-        # lastStepsUpdate = 1000
+        lastStepsUpdate = 500
+        skp = False
         while not lost:
             self.totalSteps += 1
             boardPoints = self.board.points
-            actions = ['n', 'a', 'd', 'r', 'q']
-            estimatedRewards = [asyncio.run(self.testActionPath(self, a, self.board)) for a in actions]
-            index = estimatedRewards.index(max(estimatedRewards))
-            action = actions[index]
+            actions = ['n', 'r', 'q', 'a', 'd']
+            if not skp:
+                estimatedRewards = [asyncio.run(self.testActionPath(self, a, self.board)) for a in actions]
+                index = estimatedRewards.index(max(estimatedRewards))
+                action = actions[index]
+                openHoles = findSideExposedHoles(self.board.matrix)
+            # self.depth = self.mainDepth
+            if action == 'n':
+                dst = self.getDistanceToGround()
+                # skp = False
+                self.depth = max(1, self.mainDepth - dst // 4)
+                
+                # if openHoles > 0:
+                #     action = 's'
+                # else:
+                #     action = 'x'
+
             lost = self.board.step(action + 'l') 
             if on_update:
                 on_update()
 
-            # if self.totalSteps > lastStepsUpdate:
-            #     dumpCachePickle(self.cache, depth, self.weights)
+            if self.totalSteps > lastStepsUpdate:
+                dumpCachePickle(self.cache, self.mainDepth, self.weights)
 
             if showBard:
                 os.system('clear')
@@ -247,6 +302,7 @@ NEXT PIECE: {self.board.nextPiece}
                 print('Bumpiness: ', bumpiness * self.weights[2])
                 print()
                 print('CacheLength: ', len(allCache))
+                print('DEPTH: ', self.depth)
                 print()
                 for i in range(len(actions)):
                     print('   ', actions[i], ':', estimatedRewards[i])
@@ -287,12 +343,15 @@ cache_lock = threading.Lock()
 
 allCache = {}
 depth = 4
-weights = [3, 4, 2, 5]
 
-def addCache(holes, heihgs, action, pName, pPos, pForm, reward):
+weights = [3, 4, 2, 5]
+weights = [3, 4, 2, 5]
+weights = [3, 4, 1, 2]
+
+def addCache(nxtP,holes, heihgs, action, pName, pPos, pForm, reward):
     # global allCache
     # input(allCache)
-    cache_queue.put((holes, heihgs, action, pName, pPos, pForm, reward))
+    cache_queue.put((nxtP, holes, heihgs, action, pName, pPos, pForm, reward))
 
 def cache_worker():
     global allCache
@@ -301,12 +360,22 @@ def cache_worker():
         if item is None:
             break  # graceful shutdown
 
-        holes, heights, action, pName, pPos, pForm, reward = item
-        key = hash_key(heights, holes, action, pName, pPos, pForm)
+        nxtP, holes, heights, action, pName, pPos, pForm, reward = item
+        data = {
+            'nextPosition' : nxtP,
+            'heights' : heights,
+            'holes' : holes,
+            'action' : action,
+            'pieceName' : pName,
+            'position' : pPos,
+            'pieceForm' : pForm
+        }
+        key = hash_key(nxtP, heights, holes, action, pName, pPos, pForm)
 
         with cache_lock:
             if key not in allCache:
-                allCache[key] = reward
+                allCache[key] = {'reward' : reward,
+                                 'data' : data}
 
         cache_queue.task_done()
 
@@ -322,12 +391,12 @@ def trainGenerations(gens=10000):
     collectingCache = False
     gmaes = 0
     for i in range(gens):
-        trsc = trainingScene()
+        trsc = trainingScene(depth=depth)
         if not collectingCache:
             trsc.cache = allCache
         trsc
         trsc.weights = weights
-        trsc.depth = depth
+        # trsc.depth = depth
         al = len(allCache)
         print()
         print(f'GENERATION: {i}')
