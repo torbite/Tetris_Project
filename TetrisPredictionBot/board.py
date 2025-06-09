@@ -1,4 +1,4 @@
-import copy, os, time, random, numpy as np, math
+import copy, os, time, random, numpy as np, math, platform
 from copy import deepcopy
 from pynput import keyboard
 from threading import Thread
@@ -421,7 +421,7 @@ if __name__ == "__main__":
         try:
             if key.char in acts:
                 a = board.step(key.char)
-                os.system('clear')
+                os.system('clear' if platform.system() == 'Darwin' else 'cls')
                 print(f"""
 --------------------------------
 POINTS: {board.points}
@@ -444,7 +444,7 @@ LEVEL: {level}
     listener.start()
 
     while inp != "hell":
-        os.system('clear')
+        os.system('clear' if platform.system() == 'Darwin' else 'cls')
         if lost:
             print("YOU LOST BROOOOOO")
             break

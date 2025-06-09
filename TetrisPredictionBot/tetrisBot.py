@@ -1,4 +1,4 @@
-import copy, main, os, time, math, random, json
+import copy, board, os, time, math, random, json, platform
 from copy import deepcopy
 import hashlib
 import asyncio
@@ -133,7 +133,7 @@ class trainingScene():
     def __init__(self, depth = 4):
         self.depth = depth
         self.mainDepth = depth
-        self.board = main.TetrisBoard(8, 20)
+        self.board = board.TetrisBoard(8, 20)
         self.hasEnded = False
         self.weights = [1, 1, 1, 1]
         self.totalSteps = 0
@@ -282,7 +282,7 @@ class trainingScene():
                 dumpCachePickle(self.cache, self.mainDepth, self.weights)
 
             if showBard:
-                os.system('clear')
+                os.system('clear' if platform.system() == 'Darwin' else 'cls')
                 print(boardText)
                 print(f"""
 -----------------------------
@@ -342,7 +342,7 @@ cache_queue = Queue()
 cache_lock = threading.Lock()
 
 allCache = {}
-depth = 4
+depth = 6
 
 weights = [3, 4, 2, 5]
 weights = [3, 4, 2, 5]

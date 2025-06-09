@@ -1,4 +1,4 @@
-import copy, os, time, random, numpy as np, math
+import copy, os, time, random, numpy as np, math, platform
 from copy import deepcopy
 from pynput import keyboard
 from threading import Thread
@@ -219,7 +219,7 @@ class TetrisBoard():
         new_board.nextPiece = self.nextPiece
         return new_board
 
-    def getPrettyBoard(self, board = None):
+    def renderBoard(self, board = None):
         board = board if board else self.matrix
         board = deepcopy(board)
         prettyBoard = deepcopy(board)
@@ -232,11 +232,6 @@ class TetrisBoard():
                 #     print(value)
                 #     # input()
                 prettyBoard[i][j] = ' . ' if value == 0 else '[=]'
-        return prettyBoard
-    
-    def renderBoard(self, board = None):
-        board = board if board else self.matrix
-        prettyBoard = self.getPrettyBoard(board)
         # print(a)
         for row in prettyBoard:
             rowString = '| '
@@ -421,7 +416,7 @@ if __name__ == "__main__":
         try:
             if key.char in acts:
                 a = board.step(key.char)
-                os.system('clear')
+                os.system('clear' if platform.system() == 'Darwin' else 'cls')
                 print(f"""
 --------------------------------
 POINTS: {board.points}
@@ -444,7 +439,7 @@ LEVEL: {level}
     listener.start()
 
     while inp != "hell":
-        os.system('clear')
+        os.system('clear' if platform.system() == 'Darwin' else 'cls')
         if lost:
             print("YOU LOST BROOOOOO")
             break

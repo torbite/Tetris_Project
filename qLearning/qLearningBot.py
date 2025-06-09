@@ -1,4 +1,4 @@
-import copy, main, os, time, math, random
+import copy, board, os, time, math, random
 from copy import deepcopy
 import numpy as np
 
@@ -41,7 +41,7 @@ def findAggHeight(board):
     heights = get_column_heights(board)
     return sum(heights) / (len(board) * (len(board[0]) - 4))
 
-def calculatePoints(tetrisBoard : main.TetrisBoard, w1, w2, w3):
+def calculatePoints(tetrisBoard : board.TetrisBoard, w1, w2, w3):
     board = tetrisBoard.matrix
     heights = get_column_heights(board)
     holes = findHolesInBoard(board)
@@ -83,15 +83,15 @@ class QModel():
 
 class trainingScene():
     def __init__(self):
-        self.board = main.TetrisBoard(8, 20)
+        self.board = board.TetrisBoard(8, 20)
         self.hasEnded = False
-        self.actions = ['n', 'a', 'd', 'r', 'q', 'x']
+        self.actions = ['n', 'a', 'd', 'r', 'q']
         self.qModel = QModel(self.actions)
         self.totalSteps = 0
         # self.linesClearedByPoints = {0:0, 40:1, 100:2, 300:3, 1200:4}
 
     def resetBoard(self):
-        self.board = main.TetrisBoard(8, 20)
+        self.board = board.TetrisBoard(8, 20)
         self.totalSteps = 0
 
     def discretize(self, value, bins):
@@ -105,7 +105,7 @@ class trainingScene():
         while not lost:
             self.totalSteps += 1
             if len(self.board.activePieces) <= 0:
-                lost = self.board.step('n')
+                lost = self.board.step('nj')
                 continue
 
             heights = get_column_heights(self.board.matrix)
@@ -115,10 +115,10 @@ class trainingScene():
             bumpiness = checkForRowsBumpiness(self.board.matrix)
             points = self.board.clearedLines
 
-            activePiece : main.Piece = self.board.activePieces[0]
+            activePiece : board.Piece = self.board.activePieces[0]
 
             piece_type = type(activePiece)
-            piece_index = next(i for i, cls in enumerate(main.pieces) if cls == piece_type)
+            piece_index = next(i for i, cls in enumerate(board.pieces) if cls == piece_type)
 
             piecePos = activePiece.position
             px = piecePos[0]
@@ -145,17 +145,17 @@ class trainingScene():
                 index = estimatedRewards.index(max(estimatedRewards))
                 action = self.actions[index]
 
-            lost = self.board.step(action)
+            lost = self.board.step(action + 's')
 
             newHoles = findHolesInBoard(self.board.matrix)
             newAvgh = sum(heights)
             newBumpiness = checkForRowsBumpiness(self.board.matrix)
             newPoints = self.board.clearedLines
 
-            activePiece : main.Piece = self.board.activePieces[0]
+            activePiece : board.Piece = self.board.activePieces[0]
 
             piece_type = type(activePiece)
-            piece_index = next(i for i, cls in enumerate(main.pieces) if cls == piece_type)
+            piece_index = next(i for i, cls in enumerate(board.pieces) if cls == piece_type)
 
             piecePos = activePiece.position
             px = piecePos[0]
@@ -183,7 +183,7 @@ class trainingScene():
             if on_update:
                 on_update()
             if showBard:
-                os.system('clear')
+                os.system('clear' if platform.system() == 'Darwin' else 'cls')
                 print(boardText)
                 print(f"""
 -----------------------------
@@ -213,7 +213,7 @@ NEXT PIECE: {self.board.nextPiece}
 
 def trainGenerations(gens=5000000):
     trsc = trainingScene()
-    end = 0
+    end = 40000
     for i in range(gens):
         if i < end:
             _ = trsc.runGame(False, f'GENERATION {i}')
